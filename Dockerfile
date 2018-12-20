@@ -11,11 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+FROM golang:1.10 AS build-env
+ADD ./  /go/src/github.com/heptiolabs/eventrouter
+WORKDIR /go/src/github.com/heptiolabs/eventrouter
+RUN CGO_ENABLED=0  go build 
 
 FROM geekidea/alpine-a:3.8
 MAINTAINER Timothy St. Clair "tstclair@heptio.com"  
-
-ADD eventrouter /eventrouter 
+COPY --from=build-env /go/src/github.com/heptiolabs/eventrouter/eventrouter /eventrouter
+RUN chmod +x /eventrouter 
 USER www:www
 
 CMD ["/bin/sh", "-c", "/eventrouter -v 3 -logtostderr"]
