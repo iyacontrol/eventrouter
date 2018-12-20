@@ -16,7 +16,7 @@ FROM geekidea/alpine-a:3.8
 MAINTAINER Timothy St. Clair "tstclair@heptio.com"  
 
 ADD eventrouter /eventrouter 
-USER nobody:nobody
+USER www:www
 
 CMD ["/bin/sh", "-c", "/eventrouter -v 3 -logtostderr"]
 
