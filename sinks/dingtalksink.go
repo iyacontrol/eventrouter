@@ -13,6 +13,14 @@ import (
 	"k8s.io/api/core/v1"
 )
 
+const (
+	WARNING           int = 2
+	NORMAL            int = 1
+	DEFAULT_MSG_TYPE      = "text"
+	CONTENT_TYPE_JSON     = "application/json"
+	MSG_TEMPLATE          = "Level:%s \nCluster:%s \nNamespace:%s \nName:%s \nMessage:%s \nReason:%s \nTimestamp:%s"
+)
+
 type DingTalkNotificationResponse struct {
 	ErrorMessage string `json:"errmsg"`
 	ErrorCode    int    `json:"errcode"`
@@ -67,16 +75,18 @@ type DingTalkNotificationButton struct {
 // DingtalkSink wraps an dingtalk webhook endpoint that messages should be sent to.
 type DingtalkSink struct {
 	SinkURL string
+	Cluster string
+	Level int
 
 	eventCh    channels.Channel
 	httpClient *pester.Client
-	bodyBuf    *bytes.Buffer
 }
 
 // NewDingtalkSink constructs a new DingtalkSink given a sink URL and buffer size
-func NewDingtalkSink(sinkURL string, overflow bool, bufferSize int) *DingtalkSink {
+func NewDingtalkSink(sinkURL, cluster , level string, overflow bool, bufferSize int) *DingtalkSink {
 	h := &DingtalkSink{
 		SinkURL: sinkURL,
+		Cluster: cluster,
 	}
 
 	if overflow {
@@ -88,9 +98,6 @@ func NewDingtalkSink(sinkURL string, overflow bool, bufferSize int) *DingtalkSin
 	h.httpClient = pester.New()
 	h.httpClient.Backoff = pester.ExponentialJitterBackoff
 	h.httpClient.MaxRetries = 10
-	// Let the body buffer be 4096 bytes at the start. It will be grown if
-	// necessary.
-	h.bodyBuf = bytes.NewBuffer(make([]byte, 0, 4096))
 
 	return h
 }
@@ -145,43 +152,51 @@ loop:
 // server. This function is *NOT* re-entrant: it re-uses the same body buffer
 // for each call, truncating it each time to avoid extra memory allocations.
 func (h *DingtalkSink) drainEvents(events []EventData) {
-	notification, err := buildDingTalkNotification(events)
-	if err != nil {
-		glog.Warningf("Failed to build notification : %T", err)
-		return
+	for _, event := range events {
+		if !h.isEventLevelDangerous(event.Event.Type) {
+			continue
+		}
+
+		notification, err := h.buildDingTalkNotification(event.Event)
+		if err != nil {
+			glog.Warningf("Failed to build notification : %T", err)
+			continue
+		}
+
+		robotResp, err := h.sendDingTalkNotification(h.httpClient, h.SinkURL, notification)
+		if err != nil {
+			glog.Warningf("Failed to send notification: %T", err)
+			continue
+		}
+
+		if robotResp.ErrorCode != 0 {
+			glog.Warningf("Failed to send notification to DingTalk: respCode is %s and respMsg is %s", robotResp.ErrorCode, robotResp.ErrorMessage)
+			continue
+		}
+
 	}
 
-	robotResp, err := sendDingTalkNotification(h.httpClient, h.SinkURL, notification)
-	if err != nil {
-		glog.Warningf("Failed to send notification: %T",  err)
-		return
-	}
-
-	if robotResp.ErrorCode != 0 {
-		glog.Warningf("Failed to send notification to DingTalk: respCode is %s and respMsg is %s", robotResp.ErrorCode, robotResp.ErrorMessage)
-		return
-	}
 }
 
-
-
-func buildDingTalkNotification(events []EventData) (*DingTalkNotification, error) {
-	content := ""
-	for _, e := range events{
-		content +=  fmt.Sprintf("%s namespace of %s cluster, %s%s: %s at \n",e.Event.Namespace, e.Event.ClusterName,e.Verb,e.Event.Kind, e.Event.Name, e.Event.CreationTimestamp.String())
+func (d *DingtalkSink) isEventLevelDangerous(level string) bool {
+	score := getLevel(level)
+	if score >= d.Level {
+		return true
 	}
+	return false
+}
 
+func (d *DingtalkSink) buildDingTalkNotification(event *v1.Event) (*DingTalkNotification, error) {
 	notification := &DingTalkNotification{
-		MessageType: "text",
+		MessageType: DEFAULT_MSG_TYPE,
 		Text: &DingTalkNotificationText{
-			Title:"kube2dingtalk",
-			Content: content,
+			Content: fmt.Sprintf(MSG_TEMPLATE, event.Type, d.Cluster,event.Namespace, event.Name, event.Message, event.Reason, event.LastTimestamp),
 		},
 	}
 	return notification, nil
 }
 
-func sendDingTalkNotification(httpClient *pester.Client, webhookURL string, notification *DingTalkNotification) (*DingTalkNotificationResponse, error) {
+func (d *DingtalkSink) sendDingTalkNotification(httpClient *pester.Client, webhookURL string, notification *DingTalkNotification) (*DingTalkNotificationResponse, error) {
 	body, err := json.Marshal(&notification)
 	if err != nil {
 		return nil, errors.Wrap(err, "error encoding DingTalk request")
@@ -191,7 +206,7 @@ func sendDingTalkNotification(httpClient *pester.Client, webhookURL string, noti
 	if err != nil {
 		return nil, errors.Wrap(err, "error building DingTalk request")
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Type", CONTENT_TYPE_JSON)
 
 	req, err := httpClient.Do(httpReq)
 	if err != nil {
@@ -210,4 +225,18 @@ func sendDingTalkNotification(httpClient *pester.Client, webhookURL string, noti
 	}
 
 	return &robotResp, nil
+}
+
+
+func getLevel(level string) int {
+	score := 0
+	switch level {
+	case v1.EventTypeWarning:
+		score += 2
+	case v1.EventTypeNormal:
+		score += 1
+	default:
+		//score will remain 0
+	}
+	return score
 }

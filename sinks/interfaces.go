@@ -135,15 +135,22 @@ func ManufactureSink() (e EventSinkInterface) {
 			panic("http sink specified but no dingtalkSinkUrl")
 		}
 
+		cluster := viper.GetString("cluster")
+		if cluster == "" {
+			panic("http sink specified but no cluster name")
+		}
+
 		// By default we buffer up to 1500 events, and drop messages if more than
 		// 1500 have come in without getting consumed
 		viper.SetDefault("dingtalkSinkBufferSize", 1500)
 		viper.SetDefault("dingtalkSinkDiscardMessages", true)
+		viper.SetDefault("level", "Warning")
 
 		bufferSize := viper.GetInt("dingtalkSinkBufferSize")
 		overflow := viper.GetBool("dingtalkSinkDiscardMessages")
+		level := viper.GetString("level")
 
-		h := NewDingtalkSink(url, overflow, bufferSize)
+		h := NewDingtalkSink(url,  cluster, level,overflow, bufferSize)
 		go h.Run(make(chan bool))
 		return h
 	default:
