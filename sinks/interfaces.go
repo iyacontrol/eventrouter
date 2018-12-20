@@ -129,6 +129,23 @@ func ManufactureSink() (e EventSinkInterface) {
 		go s.Run(make(chan bool))
 		return s
 	// case "logfile"
+	case "dingtalk":
+		url := viper.GetString("dingtalkSinkUrl")
+		if url == "" {
+			panic("http sink specified but no dingtalkSinkUrl")
+		}
+
+		// By default we buffer up to 1500 events, and drop messages if more than
+		// 1500 have come in without getting consumed
+		viper.SetDefault("dingtalkSinkBufferSize", 1500)
+		viper.SetDefault("dingtalkSinkDiscardMessages", true)
+
+		bufferSize := viper.GetInt("dingtalkSinkBufferSize")
+		overflow := viper.GetBool("dingtalkSinkDiscardMessages")
+
+		h := NewDingtalkSink(url, overflow, bufferSize)
+		go h.Run(make(chan bool))
+		return h
 	default:
 		err := errors.New("Invalid Sink Specified")
 		panic(err.Error())

@@ -43,12 +43,12 @@ func NewEventData(eNew *v1.Event, eOld *v1.Event) EventData {
 	var eData EventData
 	if eOld == nil {
 		eData = EventData{
-			Verb:  "ADDED",
+			Verb:  "新建",
 			Event: eNew,
 		}
 	} else {
 		eData = EventData{
-			Verb:     "UPDATED",
+			Verb:     "修改",
 			Event:    eNew,
 			OldEvent: eOld,
 		}

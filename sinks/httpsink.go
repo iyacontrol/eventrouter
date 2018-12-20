@@ -159,3 +159,5 @@ func (h *HTTPSink) drainEvents(events []EventData) {
 		glog.Warningf("Got HTTP code %v from %v", resp.StatusCode, h.SinkURL)
 	}
 }
+
+
