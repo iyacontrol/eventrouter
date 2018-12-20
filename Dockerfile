@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM alpine:3.8
+FROM geekidea/alpine-a:3.8
 MAINTAINER Timothy St. Clair "tstclair@heptio.com"  
 
-RUN apk update --no-cache && apk add ca-certificates
 ADD eventrouter /eventrouter 
 USER nobody:nobody
 
